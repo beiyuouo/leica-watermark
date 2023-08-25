@@ -7,7 +7,6 @@ from PIL import Image, ImageDraw, ImageFont
 from loguru import logger
 import piexif
 import ezkfg as ez
-from cairosvg import svg2png
 
 FONTS_PATH = Path(__file__).parent / "asset" / "fonts"
 ICONS_PATH = Path(__file__).parent / "asset" / "icons"
@@ -26,8 +25,8 @@ CONFIG_TEMPLATE = {
         'font_size': "20%",
         'font_color': [0, 0, 0, 255],
         'border': {
-            'size': "3%",
-            "ratio": "4:3",
+            "size": "3%",
+            "ratio": "auto",
         },
         'bg_color': [255, 255, 255, 255],
         'text_area': {
@@ -51,16 +50,16 @@ CONFIG_TEMPLATE = {
         'gps': False,
     },
     'icons': {
-        'canon': str(ICONS_PATH / "canon.svg"),
-        'leica': str(ICONS_PATH / "leica.svg"),
-        'nikon': str(ICONS_PATH / "nikon.svg"),
-        'sony': str(ICONS_PATH / "sony.svg"),
-        'olympus': str(ICONS_PATH / "olympus.svg"),
-        'panasonic': str(ICONS_PATH / "panasonic.svg"),
-        'fujifilm': str(ICONS_PATH / "fujifilm.svg"),
-        'apple': str(ICONS_PATH / "apple.svg"),
-        'xiaomi': str(ICONS_PATH / "xiaomi.svg"),
-        'huawei': str(ICONS_PATH / "huawei.svg"),
+        'canon': str(ICONS_PATH / "canon.png"),
+        'leica': str(ICONS_PATH / "leica.png"),
+        'nikon': str(ICONS_PATH / "nikon.png"),
+        'sony': str(ICONS_PATH / "sony.png"),
+        'olympus': str(ICONS_PATH / "olympus.png"),
+        'panasonic': str(ICONS_PATH / "panasonic.png"),
+        'fujifilm': str(ICONS_PATH / "fujifilm.png"),
+        'apple': str(ICONS_PATH / "apple.png"),
+        'xiaomi': str(ICONS_PATH / "xiaomi.png"),
+        'huawei': str(ICONS_PATH / "huawei.png"),
     }
 }
 
@@ -313,6 +312,9 @@ class MainWindow(QWidget):
         self.img_size = img_size
         logger.info(f"img size: {img_size}")
 
+        # composition
+        self.composition = self.img_size[0] > self.img_size[1] # True: landscape, False: portrait
+
         # border
         border_size = wm_config['border']['size']
         border_size = self.deal_height_weight_type(border_size, img_size)
@@ -359,6 +361,8 @@ class MainWindow(QWidget):
         if type(font_size) == str and '%' in font_size:
             font_size = self.get_percent(font_size, text_area_size[1])
         
+        font_size = int(min(font_size, text_area_size[0] / 30))
+        
         self.font_size = font_size
         logger.info(f"font size: {font_size}")
 
@@ -380,9 +384,11 @@ class MainWindow(QWidget):
         # icon
         icon_path = self.get_icon_path(info_dict['camera_maker'])
         if icon_path and self.config['show_info']['camera_maker']:
-            svg2png(url=icon_path ,write_to=str(TEMP_PATH / "icon.png"), parent_height=font_size * 2)
             # to PIL
-            icon = Image.open(str(TEMP_PATH / "icon.png"))
+            icon = Image.open(str(icon_path)).convert('RGBA')
+            icon_height = font_size * 2 if self.composition else font_size
+            icon_width = int(icon_height * icon.size[0] / icon.size[1])
+            icon = icon.resize((icon_width, icon_height))
             logger.info(f"icon size: {icon.size}")
             self.draw_icon(nimg, icon)
         
@@ -415,15 +421,24 @@ class MainWindow(QWidget):
         return self.config['icons']['leica']
 
     def draw_icon(self, img, icon):
-        self.margin = self.get_percent(self.config['watermark']['margin'], self.text_area_size[0]) if '%' in str(self.config['watermark']['margin']) else self.config['watermark']['margin']
-        self.div_line_width = self.get_percent(self.config['watermark']['div_line_width'], self.text_area_size[0]) if '%' in str(self.config['watermark']['div_line_width']) else int(self.config['watermark']['div_line_width'])
-        icon_pos = (int(self.start_pos_width - icon.size[0] - self.margin * 2 - self.div_line_width), int(self.nheight-self.text_area_size[1] + (self.text_area_size[1]-icon.size[1])/2))
-        img.paste(icon, icon_pos, icon)
-        
-        # draw div line
-        draw = ImageDraw.Draw(img)
-        draw.line((self.start_pos_width - self.margin - self.div_line_width, icon_pos[1], self.start_pos_width - self.margin - self.div_line_width, icon_pos[1] + icon.size[1]), fill=tuple(self.config['watermark']['div_line_color']), width=int(self.div_line_width))
 
+        if self.composition:
+            self.margin = self.get_percent(self.config['watermark']['margin'], self.text_area_size[0]) if '%' in str(self.config['watermark']['margin']) else self.config['watermark']['margin']
+            logger.info(f"margin: {self.margin}")
+            self.div_line_width = self.get_percent(self.config['watermark']['div_line_width'], self.text_area_size[0]) if '%' in str(self.config['watermark']['div_line_width']) else int(self.config['watermark']['div_line_width'])
+            self.div_line_width = min(self.div_line_width, 20, int(self.nwidth / 500))
+            logger.info(f"div line width: {self.div_line_width}")
+            icon_pos = (int(self.start_pos_width - icon.size[0] - self.margin * 2 - self.div_line_width), int(self.nheight-self.text_area_size[1] + (self.text_area_size[1]-icon.size[1])/2))
+            img.paste(icon, icon_pos, icon)
+            
+            # draw div line
+            draw = ImageDraw.Draw(img)
+            draw.line((self.start_pos_width - self.margin - self.div_line_width, icon_pos[1], self.start_pos_width - self.margin - self.div_line_width, icon_pos[1] + icon.size[1]), fill=tuple(self.config['watermark']['div_line_color']), width=int(self.div_line_width))
+        else:
+            self.margin = self.get_percent(self.config['watermark']['margin'], self.text_area_size[0]) if '%' in str(self.config['watermark']['margin']) else self.config['watermark']['margin']
+            logger.info(f"margin: {self.margin}")
+            icon_pos = (int(self.start_pos_width_dt - icon.size[0] - self.margin * 2), self.nheight-self.text_area_size[1] + int(self.font_size / 0.8) + int((self.text_area_size[1]-2*self.font_size)/5 * 3 - self.font_size / 0.8 * 0.2))
+            img.paste(icon, icon_pos, icon)
         return img
 
     def draw_camera_text(self, img, info, font):
@@ -471,6 +486,7 @@ class MainWindow(QWidget):
         text_pos = (int(self.nwidth - self.border_size[0] - text_size[0]), self.nheight-self.text_area_size[1] + int(text_size[1] / 0.8) + int((self.text_area_size[1]-2*text_size[1])/5*3))
         draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['light'])
 
+        self.start_pos_width_dt = text_pos[0]
         self.start_pos_width = min(self.start_pos_width, text_pos[0])
 
         return img
