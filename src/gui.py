@@ -25,9 +25,9 @@ class IntroWindow(QWidget):
         folder_path = QFileDialog.getExistingDirectory(self, "Open Folder")
         if folder_path:
             logger.info(f"selected folder: {folder_path}")
-            main_window = MainWindow(folder_path)
-            main_window.show()
-            self.close()
+            self.hide()
+            self.main_window = MainWindow(folder_path)
+            self.main_window.show()
 
 
 class MainWindow(QWidget):
