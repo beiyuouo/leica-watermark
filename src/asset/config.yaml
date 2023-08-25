@@ -1,5 +1,16 @@
 folder_history:
 - G:/GitHubProject/leica-watermark/tests/images
+icons:
+  apple: G:\GitHubProject\leica-watermark\src\asset\icons\apple.svg
+  canon: G:\GitHubProject\leica-watermark\src\asset\icons\canon.svg
+  fujifilm: G:\GitHubProject\leica-watermark\src\asset\icons\fujifilm.svg
+  huawei: G:\GitHubProject\leica-watermark\src\asset\icons\huawei.svg
+  leica: G:\GitHubProject\leica-watermark\src\asset\icons\leica.svg
+  nikon: G:\GitHubProject\leica-watermark\src\asset\icons\nikon.svg
+  olympus: G:\GitHubProject\leica-watermark\src\asset\icons\olympus.svg
+  panasonic: G:\GitHubProject\leica-watermark\src\asset\icons\panasonic.svg
+  sony: G:\GitHubProject\leica-watermark\src\asset\icons\sony.svg
+  xiaomi: G:\GitHubProject\leica-watermark\src\asset\icons\xiaomi.svg
 max_folder_history: 10
 show_info:
   aperture: true
@@ -13,6 +24,14 @@ show_info:
   shutter_speed: true
   time: true
 watermark:
+  bg_color:
+  - 255
+  - 255
+  - 255
+  - 255
+  border:
+    ratio: '4:3'
+    size: 5%
   font: arial.ttf
   font_color:
   - 255
@@ -20,8 +39,7 @@ watermark:
   - 255
   - 255
   font_size: 20
-  opacity: 1
-  position:
-  - 0
-  - 0
   text: LEICA
+  text_area:
+    height: 15%
+    width: 100%

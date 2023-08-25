@@ -10,17 +10,27 @@ from PIL.ExifTags import TAGS
 from loguru import logger
 import piexif
 import ezkfg as ez
+import svgwrite
 
-config_template = {
+ICONS_PATH = Path(__file__).parent / "asset" / "icons"
+
+CONFIG_TEMPLATE = {
     'folder_history': [],
     'max_folder_history': 10,
     'watermark': {
         'text': 'LEICA',
         'font': 'arial.ttf',
         'font_size': 20,
-        'font_color': (255, 255, 255, 255),
-        'position': (0, 0),
-        'opacity': 1
+        'font_color': [255, 255, 255, 255],
+        'border': {
+            'size': "3%",
+            "ratio": "16:9",
+        },
+        'bg_color': [0, 0, 0, 0],
+        'text_area': {
+            'height': "15%",
+            'width': "100%",
+        }
     },
     'show_info': {
         'camera': True,
@@ -33,6 +43,18 @@ config_template = {
         'date': True,
         'time': True,
         'gps': True
+    },
+    'icons': {
+        'canon': str(ICONS_PATH / "canon.svg"),
+        'leica': str(ICONS_PATH / "leica.svg"),
+        'nikon': str(ICONS_PATH / "nikon.svg"),
+        'sony': str(ICONS_PATH / "sony.svg"),
+        'olympus': str(ICONS_PATH / "olympus.svg"),
+        'panasonic': str(ICONS_PATH / "panasonic.svg"),
+        'fujifilm': str(ICONS_PATH / "fujifilm.svg"),
+        'apple': str(ICONS_PATH / "apple.svg"),
+        'xiaomi': str(ICONS_PATH / "xiaomi.svg"),
+        'huawei': str(ICONS_PATH / "huawei.svg"),
     }
 }
 
@@ -63,17 +85,10 @@ class IntroWindow(QWidget):
         self.check_config()
         logger.info(self.config)
     
-    def check_config(self):
-        if 'folder_history' not in self.config:
-            self.config['folder_history'] = []
-        if 'max_folder_history' not in self.config:
-            self.config['max_folder_history'] = 10
-        
-        if 'watermark' not in self.config:
-            self.config['watermark'] = config_template['watermark']
-        
-        if 'show_info' not in self.config:
-            self.config['show_info'] = config_template['show_info']
+    def check_config(self):        
+        self.config_ = ez.Config(CONFIG_TEMPLATE)
+        self.config_.update(self.config)
+        self.config = self.config_
         
         self.config.dump(self.config_path)
     
@@ -207,8 +222,9 @@ class MainWindow(QWidget):
         self.imgInfo.setText(info)
         
         # 添加水印
-        watermarked = QImage(img)
+        watermarked = Image.open(img_path).convert('RGBA')
         watermarked = self.add_watermark(watermarked, target_dict)
+        watermarked = QImage(watermarked.tobytes(), watermarked.size[0], watermarked.size[1], QImage.Format_RGBA8888)
         self.imgWMView.setPixmap(QPixmap.fromImage(watermarked).scaled(500, 500, Qt.KeepAspectRatio))
 
     @staticmethod
@@ -219,4 +235,94 @@ class MainWindow(QWidget):
             return f"{int(value)}s"
     
     def add_watermark(self, img, info_dict):
+        wm_config = self.config['watermark']
+        img_size = img.size
+
+        logger.info(f"img size: {img_size}")
+
+        # border
+        border_size = wm_config['border']['size']
+        border_size = self.deal_height_weight_type(border_size, img_size)
+        
+        logger.info(f"border size: {border_size}")
+
+        if ":" in wm_config['border']['ratio']:
+            border_ratio = wm_config['border']['ratio'].split(':')
+            if int(border_ratio[0]) < int(border_ratio[1]):
+                border_ratio = int(border_ratio[1]) / int(border_ratio[0])
+            else:
+                border_ratio = int(border_ratio[0]) / int(border_ratio[1])
+        else:
+            border_ratio = None
+
+        logger.info(f"border ratio: {border_ratio}")
+
+        # text area size
+        text_area_size = wm_config['text_area']['width'], wm_config['text_area']['height']
+        text_area_size = self.deal_height_weight_type(text_area_size, img_size)
+
+        logger.info(f"text area size: {text_area_size}")
+
+        # new image size
+        # awalys bottom
+        nheight = img_size[1] + text_area_size[1] + border_size[1]
+        nwidth = nheight * border_ratio if border_ratio else img_size[0] + border_size[0] * 2
+
+        nheight = int(nheight)
+        nwidth = int(nwidth)
+
+        logger.info(f"new image size: {nwidth}x{nheight}")
+
+        nimg = Image.new('RGBA', (nwidth, nheight), tuple(wm_config['bg_color']))
+        nimg.paste(img, (int((nwidth-img_size[0])/2), border_size[1]))
+
+        # font
+        font = ImageFont.truetype(wm_config['font'], wm_config['font_size'])
+        font_color = wm_config['font_color']
+
+        # icon
+        icon_path = self.get_icon_path(info_dict['camera_maker'])
+        if icon_path:
+            icon = svgwrite.image.Image(icon_path, size=(int(img_size[0]*0.1), int(img_size[0]*0.1)))
+            self.draw_icon(nimg, icon)
+
+
+
+        return nimg
+
+    @staticmethod
+    def get_percent(value, total):
+        value = int(value.split('%')[0])
+        return int(1.0*value*total/100)
+    
+    def deal_height_weight_type(self, value, img_size):
+        if type(value) == int:
+            return (value, value)
+        elif (type(value) == list or type(value) == tuple) and len(value) == 2:
+            value = list(value)
+            if '%' in value[0]:
+                value[0] = self.get_percent(value[0], img_size[0])
+            if '%' in value[1]:
+                value[1] = self.get_percent(value[1], img_size[1])
+            return (value[0], value[1])
+        elif type(value) == str and '%' in value:
+            value = value.split('%')[0]
+            return (self.get_percent(value, img_size[0]), self.get_percent(value, img_size[1]))
+
+    def get_icon_path(self, camera_maker):
+        for key, value in self.config['icons'].items():
+            if key.lower() in camera_maker.lower():
+                return value
+        return None
+
+    def draw_icon(self, img, icon):
+        return img
+
+    def draw_camera_text(self, img, text):
+        return img
+
+    def draw_detail_text(self, img, text):
+        return img
+
+    def draw_date_text(self, img, text):
         return img
