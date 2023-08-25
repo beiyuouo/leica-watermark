@@ -1,12 +1,9 @@
 from pathlib import Path
 import os
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QImage, QPixmap, QFont, QPixmap, QIcon, QFontMetrics
-from PyQt5.QtWidgets import QWidget, QApplication, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QPushButton, QFileDialog, QMessageBox
-from PyQt5.QtWidgets import QGridLayout, QListWidget, QListWidgetItem, QTextEdit, QListView
-from PyQt5.QtCore import Qt, QSize
+from PyQt5.QtCore import *
+from PyQt5.QtGui import *
+from PyQt5.QtWidgets import *
 from PIL import Image, ImageDraw, ImageFont
-from PIL.ExifTags import TAGS
 from loguru import logger
 import piexif
 import ezkfg as ez
@@ -51,7 +48,7 @@ CONFIG_TEMPLATE = {
         'iso': True,
         'date': True,
         'time': True,
-        'gps': True
+        'gps': False,
     },
     'icons': {
         'canon': str(ICONS_PATH / "canon.svg"),
@@ -152,9 +149,10 @@ class MainWindow(QWidget):
         self.imgView.setAlignment(Qt.AlignCenter)
         self.imgWMView = QLabel()
         self.imgWMView.setAlignment(Qt.AlignCenter)
-        self.imgInfo = QTextEdit()
+        self.imgInfo = QListWidget()
         self.controlPanel = QWidget()
-        
+
+        self.set_control_panel()
 
         self.grid.addWidget(self.thumbView, 0, 0, 2, 1)
         self.grid.addWidget(self.imgView, 0, 1)
@@ -167,7 +165,6 @@ class MainWindow(QWidget):
         self.grid.setColumnStretch(2, 4)
         self.grid.setRowStretch(0, 2)
         self.grid.setRowStretch(1, 1)
-
 
         self.setLayout(self.grid)
 
@@ -185,7 +182,46 @@ class MainWindow(QWidget):
         self.thumbView.currentRowChanged.connect(self.show_image)
         self.show_image(0)
 
-    def show_image(self, index):
+    def set_control_panel(self):
+        self.imgInfo.setSelectionMode(QAbstractItemView.NoSelection)
+        info_items = self.config['show_info']
+        for name, checked in info_items.items():
+            item = QListWidgetItem(name)
+            item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
+            if checked:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
+            self.imgInfo.addItem(item)
+        
+        self.imgInfo.itemChanged.connect(self.update_info)
+
+        self.controlPanelLayout = QVBoxLayout()
+        self.regenerate_btn = QPushButton('Regenerate')
+        self.regenerate_btn.clicked.connect(self.show_image)
+        
+        self.batch_btn = QPushButton('Batch Process')
+        self.batch_btn.clicked.connect(self.batch_process)
+        
+        self.progressBar = QProgressBar()
+        self.progressBar.setVisible(False)
+        
+        self.controlPanelLayout.addWidget(self.regenerate_btn)
+        self.controlPanelLayout.addWidget(self.batch_btn)
+        self.controlPanelLayout.addWidget(self.progressBar)
+        self.controlPanel.setLayout(self.controlPanelLayout)
+    
+    def update_info(self, item):
+        info_items = self.config['show_info']
+        info_items[item.text()] = True if item.checkState() == Qt.Checked else False
+        self.config['show_info'] = info_items
+        self.config.dump(Path(__file__).parent / "asset" / "config.yaml")
+        self.show_image(self.current_index)
+
+    def show_image(self, index = -1):
+        if index == -1:
+            index = self.thumbView.currentRow()
+        self.current_index = index
         filename = self.thumbView.item(index).text()
         img_path = os.path.join(self.folder_path, filename)
         
@@ -193,7 +229,7 @@ class MainWindow(QWidget):
         self.imgView.setPixmap(QPixmap.fromImage(img).scaled(500, 500, Qt.KeepAspectRatio))
 
         f = Image.open(img_path)
-        info = ''
+        # info = ''
         piexif_dict = piexif.load(f.info['exif'])
         target_dict = {
             'camera': piexif_dict['0th'][272].decode('utf-8'),
@@ -215,26 +251,33 @@ class MainWindow(QWidget):
         target_dict['date'] = target_dict['date'].split(' ')[0].replace(':', '-')
         target_dict['time'] = target_dict['time'].split(' ')[1]
 
-        info += f"Camera: {target_dict['camera']}\n"
-        info += f"Camera Maker: {target_dict['camera_maker']}\n"
-        info += f"Lens: {target_dict['lens']}\n"
-        info += f"Focal Length: {target_dict['focal_length']}\n"
-        info += f"Aperture: {target_dict['aperture']}\n"
-        info += f"Shutter Speed: {target_dict['shutter_speed']}\n"
-        info += f"ISO: {target_dict['iso']}\n"
-        info += f"Date: {target_dict['date']}\n"
-        info += f"Time: {target_dict['time']}\n"
-        info += f"GPS: {target_dict['gps']}\n"
+        # info += f"Camera: {target_dict['camera']}\n"
+        # info += f"Camera Maker: {target_dict['camera_maker']}\n"
+        # info += f"Lens: {target_dict['lens']}\n"
+        # info += f"Focal Length: {target_dict['focal_length']}\n"
+        # info += f"Aperture: {target_dict['aperture']}\n"
+        # info += f"Shutter Speed: {target_dict['shutter_speed']}\n"
+        # info += f"ISO: {target_dict['iso']}\n"
+        # info += f"Date: {target_dict['date']}\n"
+        # info += f"Time: {target_dict['time']}\n"
+        # info += f"GPS: {target_dict['gps']}\n"
         
         logger.info(target_dict)
         
-        self.imgInfo.setText(info)
+        # self.imgInfo.setText(info)
         
         # add watermark
         watermarked = Image.open(img_path).convert('RGBA')
         watermarked = self.add_watermark(watermarked, target_dict)
         watermarked = QImage(watermarked.tobytes(), watermarked.size[0], watermarked.size[1], QImage.Format_RGBA8888)
         self.imgWMView.setPixmap(QPixmap.fromImage(watermarked).scaled(500, 500, Qt.KeepAspectRatio))
+    
+    def batch_process(self):
+        # 显示progressBar
+        self.progressBar.setVisible(True)
+        
+        # thread = ImageProcessor(self.folder_path, self.update_progress)
+        # thread.start()
 
     @staticmethod
     def get_shutter_speed(value):
@@ -316,7 +359,7 @@ class MainWindow(QWidget):
 
         # icon
         icon_path = self.get_icon_path(info_dict['camera_maker'])
-        if icon_path:
+        if icon_path and self.config['show_info']['camera_maker']:
             svg2png(url=icon_path ,write_to=str(TEMP_PATH / "icon.png"), parent_height=font_size * 2)
             # to PIL
             icon = Image.open(str(TEMP_PATH / "icon.png"))
@@ -365,22 +408,32 @@ class MainWindow(QWidget):
 
     def draw_camera_text(self, img, info, font):
         draw = ImageDraw.Draw(img)
-        text = info['camera']
-        text_size = draw.textsize(text, font['bold'])
-        logger.info(f"camera text size: {text_size}")
-        text_pos = (int(self.border_size[0]), self.nheight-self.text_area_size[1] + int((self.text_area_size[1]-2*text_size[1])/5*2))
-        draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['bold'])
+        if self.config['show_info']['camera']:
+            text = info['camera']
+            text_size = draw.textsize(text, font['bold'])
+            logger.info(f"camera text size: {text_size}")
+            text_pos = (int(self.border_size[0]), self.nheight-self.text_area_size[1] + int((self.text_area_size[1]-2*text_size[1])/5*2))
+            draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['bold'])
 
-        text = info['lens']
-        text_size = draw.textsize(text, font['light'])
-        logger.info(f"lens text size: {text_size}")
-        text_pos = (int(self.border_size[0]), self.nheight-self.text_area_size[1] + int(text_size[1] / 0.8) + int((self.text_area_size[1]-2*text_size[1])/5*3))
-        draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['light'])
+        if self.config['show_info']['lens']:
+            text = info['lens']
+            text_size = draw.textsize(text, font['light'])
+            logger.info(f"lens text size: {text_size}")
+            text_pos = (int(self.border_size[0]), self.nheight-self.text_area_size[1] + int(text_size[1] / 0.8) + int((self.text_area_size[1]-2*text_size[1])/5*3))
+            draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['light'])
         return img
 
     def draw_detail_text(self, img, info, font):
         draw = ImageDraw.Draw(img)
-        text = info['focal_length'] + ' ' + info['aperture'] + ' ' + info['shutter_speed'] + ' ' + info['iso']
+        text = ""
+        if self.config['show_info']['focal_length']:
+            text += info['focal_length']
+        if self.config['show_info']['aperture']:
+            text += ' ' + info['aperture']
+        if self.config['show_info']['shutter_speed']:
+            text += ' ' + info['shutter_speed']
+        if self.config['show_info']['iso']:
+            text += ' ' + info['iso']
         text_size = draw.textsize(text, font['bold'])
         logger.info(f"detail text size: {text_size}")
         text_pos = (int(self.nwidth - self.border_size[0] - text_size[0]), self.nheight-self.text_area_size[1] + int((self.text_area_size[1]-2*text_size[1])/5*2))
@@ -388,7 +441,11 @@ class MainWindow(QWidget):
 
         self.start_pos_width = text_pos[0]
 
-        text = info['date'] + ' ' + info['time']
+        text = ""
+        if self.config['show_info']['date']:
+            text += info['date']
+        if self.config['show_info']['time']:
+            text += ' ' + info['time']
         text_size = draw.textsize(text, font['light'])
         logger.info(f"date text size: {text_size}")
         text_pos = (int(self.nwidth - self.border_size[0] - text_size[0]), self.nheight-self.text_area_size[1] + int(text_size[1] / 0.8) + int((self.text_area_size[1]-2*text_size[1])/5*3))

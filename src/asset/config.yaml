@@ -18,7 +18,7 @@ show_info:
   camera_maker: true
   date: true
   focal_length: true
-  gps: true
+  gps: false
   iso: true
   lens: true
   shutter_speed: true
