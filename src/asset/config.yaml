@@ -1,0 +1,27 @@
+folder_history:
+- G:/GitHubProject/leica-watermark/tests/images
+max_folder_history: 10
+show_info:
+  aperture: true
+  camera: true
+  camera_maker: true
+  date: true
+  focal_length: true
+  gps: true
+  iso: true
+  lens: true
+  shutter_speed: true
+  time: true
+watermark:
+  font: arial.ttf
+  font_color:
+  - 255
+  - 255
+  - 255
+  - 255
+  font_size: 20
+  opacity: 1
+  position:
+  - 0
+  - 0
+  text: LEICA
