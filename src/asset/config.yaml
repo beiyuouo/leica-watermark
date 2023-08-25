@@ -31,14 +31,23 @@ watermark:
   - 255
   border:
     ratio: '4:3'
-    size: 5%
-  font: arial.ttf
+    size: 3%
+  div_line_color:
+  - 156
+  - 156
+  - 156
+  - 255
+  div_line_width: 10
+  font:
+    bold: G:\GitHubProject\leica-watermark\src\asset\fonts\SourceHanSansCN-Bold.otf
+    light: G:\GitHubProject\leica-watermark\src\asset\fonts\SourceHanSansCN-Light.otf
   font_color:
+  - 0
+  - 0
+  - 0
   - 255
-  - 255
-  - 255
-  - 255
-  font_size: 20
+  font_size: 20%
+  margin: 3%
   text: LEICA
   text_area:
     height: 15%

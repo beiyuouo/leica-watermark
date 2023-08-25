@@ -1,7 +1,7 @@
 from pathlib import Path
 import os
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QImage, QPixmap, QFont, QPixmap, QIcon
+from PyQt5.QtGui import QImage, QPixmap, QFont, QPixmap, QIcon, QFontMetrics
 from PyQt5.QtWidgets import QWidget, QApplication, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea, QPushButton, QFileDialog, QMessageBox
 from PyQt5.QtWidgets import QGridLayout, QListWidget, QListWidgetItem, QTextEdit, QListView
 from PyQt5.QtCore import Qt, QSize
@@ -10,27 +10,36 @@ from PIL.ExifTags import TAGS
 from loguru import logger
 import piexif
 import ezkfg as ez
-import svgwrite
+from cairosvg import svg2png
 
+FONTS_PATH = Path(__file__).parent / "asset" / "fonts"
 ICONS_PATH = Path(__file__).parent / "asset" / "icons"
+TEMP_PATH = Path(__file__).parent / "temp"
+TEMP_PATH.mkdir(exist_ok=True)
 
 CONFIG_TEMPLATE = {
     'folder_history': [],
     'max_folder_history': 10,
     'watermark': {
         'text': 'LEICA',
-        'font': 'arial.ttf',
-        'font_size': 20,
-        'font_color': [255, 255, 255, 255],
+        'font': {
+            'bold': str(FONTS_PATH / "SourceHanSansCN-Bold.otf"),
+            'light': str(FONTS_PATH / "SourceHanSansCN-Light.otf"),
+        },
+        'font_size': "20%",
+        'font_color': [0, 0, 0, 255],
         'border': {
             'size': "3%",
-            "ratio": "16:9",
+            "ratio": "4:3",
         },
-        'bg_color': [0, 0, 0, 0],
+        'bg_color': [255, 255, 255, 255],
         'text_area': {
             'height': "15%",
             'width': "100%",
-        }
+        },
+        'margin': '3%',
+        'div_line_width': 10,
+        'div_line_color': [156, 156, 156, 255],
     },
     'show_info': {
         'camera': True,
@@ -221,7 +230,7 @@ class MainWindow(QWidget):
         
         self.imgInfo.setText(info)
         
-        # 添加水印
+        # add watermark
         watermarked = Image.open(img_path).convert('RGBA')
         watermarked = self.add_watermark(watermarked, target_dict)
         watermarked = QImage(watermarked.tobytes(), watermarked.size[0], watermarked.size[1], QImage.Format_RGBA8888)
@@ -238,12 +247,14 @@ class MainWindow(QWidget):
         wm_config = self.config['watermark']
         img_size = img.size
 
+        self.img_size = img_size
         logger.info(f"img size: {img_size}")
 
         # border
         border_size = wm_config['border']['size']
         border_size = self.deal_height_weight_type(border_size, img_size)
         
+        self.border_size = border_size
         logger.info(f"border size: {border_size}")
 
         if ":" in wm_config['border']['ratio']:
@@ -255,39 +266,64 @@ class MainWindow(QWidget):
         else:
             border_ratio = None
 
+        self.border_ratio = border_ratio
         logger.info(f"border ratio: {border_ratio}")
 
         # text area size
         text_area_size = wm_config['text_area']['width'], wm_config['text_area']['height']
         text_area_size = self.deal_height_weight_type(text_area_size, img_size)
-
+        
+        self.text_area_size = text_area_size
         logger.info(f"text area size: {text_area_size}")
 
         # new image size
-        # awalys bottom
+        # always bottom
         nheight = img_size[1] + text_area_size[1] + border_size[1]
         nwidth = nheight * border_ratio if border_ratio else img_size[0] + border_size[0] * 2
 
         nheight = int(nheight)
         nwidth = int(nwidth)
 
+        self.nheight = nheight
+        self.nwidth = nwidth
         logger.info(f"new image size: {nwidth}x{nheight}")
 
         nimg = Image.new('RGBA', (nwidth, nheight), tuple(wm_config['bg_color']))
         nimg.paste(img, (int((nwidth-img_size[0])/2), border_size[1]))
 
         # font
-        font = ImageFont.truetype(wm_config['font'], wm_config['font_size'])
-        font_color = wm_config['font_color']
+        font_size = wm_config['font_size']
+        if type(font_size) == str and '%' in font_size:
+            font_size = self.get_percent(font_size, text_area_size[1])
+        
+        self.font_size = font_size
+        logger.info(f"font size: {font_size}")
+
+        bold_font = ImageFont.truetype(wm_config['font']['bold'], font_size)
+        light_font = ImageFont.truetype(wm_config['font']['light'], int(font_size * 0.8))
+        font = {
+            'bold': bold_font,
+            'light': light_font
+        }
+
+        # camera text
+        self.draw_camera_text(nimg, info_dict, font)
+        logger.info(f"draw camera text done")
+
+        # detail text
+        self.draw_detail_text(nimg, info_dict, font)
+        logger.info(f"draw detail text done")
 
         # icon
         icon_path = self.get_icon_path(info_dict['camera_maker'])
         if icon_path:
-            icon = svgwrite.image.Image(icon_path, size=(int(img_size[0]*0.1), int(img_size[0]*0.1)))
+            svg2png(url=icon_path ,write_to=str(TEMP_PATH / "icon.png"), parent_height=font_size * 2)
+            # to PIL
+            icon = Image.open(str(TEMP_PATH / "icon.png"))
+            logger.info(f"icon size: {icon.size}")
             self.draw_icon(nimg, icon)
-
-
-
+        
+        nimg.save(str(TEMP_PATH / "watermarked.png"))
         return nimg
 
     @staticmethod
@@ -313,16 +349,51 @@ class MainWindow(QWidget):
         for key, value in self.config['icons'].items():
             if key.lower() in camera_maker.lower():
                 return value
-        return None
+        return self.config['icons']['leica']
 
     def draw_icon(self, img, icon):
+        self.margin = self.get_percent(self.config['watermark']['margin'], self.text_area_size[0]) if '%' in str(self.config['watermark']['margin']) else self.config['watermark']['margin']
+        self.div_line_width = self.get_percent(self.config['watermark']['div_line_width'], self.text_area_size[0]) if '%' in str(self.config['watermark']['div_line_width']) else int(self.config['watermark']['div_line_width'])
+        icon_pos = (int(self.start_pos_width - icon.size[0] - self.margin * 2 - self.div_line_width), int(self.nheight-self.text_area_size[1] + (self.text_area_size[1]-icon.size[1])/2))
+        img.paste(icon, icon_pos, icon)
+        
+        # draw div line
+        draw = ImageDraw.Draw(img)
+        draw.line((self.start_pos_width - self.margin - self.div_line_width, icon_pos[1], self.start_pos_width - self.margin - self.div_line_width, icon_pos[1] + icon.size[1]), fill=tuple(self.config['watermark']['div_line_color']), width=int(self.div_line_width))
+
         return img
 
-    def draw_camera_text(self, img, text):
+    def draw_camera_text(self, img, info, font):
+        draw = ImageDraw.Draw(img)
+        text = info['camera']
+        text_size = draw.textsize(text, font['bold'])
+        logger.info(f"camera text size: {text_size}")
+        text_pos = (int(self.border_size[0]), self.nheight-self.text_area_size[1] + int((self.text_area_size[1]-2*text_size[1])/5*2))
+        draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['bold'])
+
+        text = info['lens']
+        text_size = draw.textsize(text, font['light'])
+        logger.info(f"lens text size: {text_size}")
+        text_pos = (int(self.border_size[0]), self.nheight-self.text_area_size[1] + int(text_size[1] / 0.8) + int((self.text_area_size[1]-2*text_size[1])/5*3))
+        draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['light'])
         return img
 
-    def draw_detail_text(self, img, text):
-        return img
+    def draw_detail_text(self, img, info, font):
+        draw = ImageDraw.Draw(img)
+        text = info['focal_length'] + ' ' + info['aperture'] + ' ' + info['shutter_speed'] + ' ' + info['iso']
+        text_size = draw.textsize(text, font['bold'])
+        logger.info(f"detail text size: {text_size}")
+        text_pos = (int(self.nwidth - self.border_size[0] - text_size[0]), self.nheight-self.text_area_size[1] + int((self.text_area_size[1]-2*text_size[1])/5*2))
+        draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['bold'])
 
-    def draw_date_text(self, img, text):
+        self.start_pos_width = text_pos[0]
+
+        text = info['date'] + ' ' + info['time']
+        text_size = draw.textsize(text, font['light'])
+        logger.info(f"date text size: {text_size}")
+        text_pos = (int(self.nwidth - self.border_size[0] - text_size[0]), self.nheight-self.text_area_size[1] + int(text_size[1] / 0.8) + int((self.text_area_size[1]-2*text_size[1])/5*3))
+        draw.text(text_pos, text, tuple(self.config['watermark']['font_color']), font=font['light'])
+
+        self.start_pos_width = min(self.start_pos_width, text_pos[0])
+
         return img
