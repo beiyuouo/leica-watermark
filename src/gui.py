@@ -120,7 +120,9 @@ class IntroWindow(QWidget):
             self.config['folder_history'].append(folder_path)
             if len(self.config['folder_history']) > self.config['max_folder_history']:
                 self.config['folder_history'] = self.config['folder_history'][-self.config['max_folder_history']:]
-            self.config.dump(self.config_path)
+            
+        self.config['export_folder'] = os.path.join(folder_path, "export")
+        self.config.dump(self.config_path)
         
         self.hide()
         self.main_window = MainWindow(folder_path)
@@ -218,6 +220,13 @@ class MainWindow(QWidget):
         self.config.dump(Path(__file__).parent / "asset" / "config.yaml")
         self.show_image(self.current_index)
 
+    def process_single(self, img_path):
+        target_dict = self.get_image_info(img_path)
+        watermarked = Image.open(img_path).convert('RGBA')
+        watermarked = self.add_watermark(watermarked, target_dict)
+        watermarked = watermarked.convert('RGB')
+        watermarked.save(os.path.join(self.config['export_folder'], os.path.basename(img_path)))
+
     def show_image(self, index = -1):
         if index == -1:
             index = self.thumbView.currentRow()
@@ -228,6 +237,16 @@ class MainWindow(QWidget):
         img = QImage(img_path)
         self.imgView.setPixmap(QPixmap.fromImage(img).scaled(500, 500, Qt.KeepAspectRatio))
 
+        target_dict = self.get_image_info(img_path)        
+        logger.info(target_dict)
+        
+        # add watermark
+        watermarked = Image.open(img_path).convert('RGBA')
+        watermarked = self.add_watermark(watermarked, target_dict)
+        watermarked = QImage(watermarked.tobytes(), watermarked.size[0], watermarked.size[1], QImage.Format_RGBA8888)
+        self.imgWMView.setPixmap(QPixmap.fromImage(watermarked).scaled(500, 500, Qt.KeepAspectRatio))
+    
+    def get_image_info(self, img_path):
         f = Image.open(img_path)
         # info = ''
         piexif_dict = piexif.load(f.info['exif'])
@@ -251,33 +270,34 @@ class MainWindow(QWidget):
         target_dict['date'] = target_dict['date'].split(' ')[0].replace(':', '-')
         target_dict['time'] = target_dict['time'].split(' ')[1]
 
-        # info += f"Camera: {target_dict['camera']}\n"
-        # info += f"Camera Maker: {target_dict['camera_maker']}\n"
-        # info += f"Lens: {target_dict['lens']}\n"
-        # info += f"Focal Length: {target_dict['focal_length']}\n"
-        # info += f"Aperture: {target_dict['aperture']}\n"
-        # info += f"Shutter Speed: {target_dict['shutter_speed']}\n"
-        # info += f"ISO: {target_dict['iso']}\n"
-        # info += f"Date: {target_dict['date']}\n"
-        # info += f"Time: {target_dict['time']}\n"
-        # info += f"GPS: {target_dict['gps']}\n"
-        
-        logger.info(target_dict)
-        
-        # self.imgInfo.setText(info)
-        
-        # add watermark
-        watermarked = Image.open(img_path).convert('RGBA')
-        watermarked = self.add_watermark(watermarked, target_dict)
-        watermarked = QImage(watermarked.tobytes(), watermarked.size[0], watermarked.size[1], QImage.Format_RGBA8888)
-        self.imgWMView.setPixmap(QPixmap.fromImage(watermarked).scaled(500, 500, Qt.KeepAspectRatio))
-    
+        return target_dict
+
     def batch_process(self):
         # 显示progressBar
         self.progressBar.setVisible(True)
         
-        # thread = ImageProcessor(self.folder_path, self.update_progress)
-        # thread.start()
+        if not os.path.exists(self.config['export_folder']):
+            os.mkdir(self.config['export_folder'])
+        
+        # get all images
+        images = []
+        for img in os.listdir(self.folder_path):
+            if img.lower().endswith(('.png', '.jpg', '.jpeg')):
+                images.append(img)
+        
+        # set progressBar
+        self.progressBar.setMaximum(len(images))
+        self.progressBar.setValue(0)
+
+        # process
+
+        for img in images:
+            self.process_single(os.path.join(self.folder_path, img))
+            self.progressBar.setValue(self.progressBar.value() + 1)
+        
+        # hide progressBar
+        self.progressBar.setVisible(False)
+        QMessageBox.information(self, "Done", "Batch process done")
 
     @staticmethod
     def get_shutter_speed(value):
@@ -366,7 +386,7 @@ class MainWindow(QWidget):
             logger.info(f"icon size: {icon.size}")
             self.draw_icon(nimg, icon)
         
-        nimg.save(str(TEMP_PATH / "watermarked.png"))
+        # nimg.save(str(TEMP_PATH / "watermarked.png"))
         return nimg
 
     @staticmethod

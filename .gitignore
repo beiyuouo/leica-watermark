@@ -160,4 +160,4 @@ cython_debug/
 #.idea/
 
 tests/
-asset/config.yaml
+src/asset/config.yaml
